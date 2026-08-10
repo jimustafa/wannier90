@@ -117,7 +117,7 @@ contains
                                               common_data%exclude_bands, common_data%num_kpts, &
                                               common_data%num_proj, common_data%num_wann, &
                                               common_data%gamma_only, common_data%lhasproj, &
-                                              common_data%use_bloch_phases, &
+                                              common_data%use_bloch_phases, common_data%opfm, &
                                               common_data%dist_kpoints, istdout, error, &
                                               common_data%comm)
     if (allocated(error)) then
@@ -248,8 +248,8 @@ contains
                       common_data%m_matrix_local, common_data%num_bands, common_data%num_kpts, &
                       common_data%num_proj, common_data%num_wann, common_data%print_output, &
                       common_data%print_output%timing_level, cp_pp, common_data%use_bloch_phases, &
-                      common_data%seedname, istdout, common_data%timer, common_data%dist_kpoints, &
-                      error, common_data%comm)
+                      common_data%opfm, common_data%seedname, istdout, common_data%timer, &
+                      common_data%dist_kpoints, error, common_data%comm)
     if (allocated(error)) then
       call prterr(error, ierr, istdout, istderr, common_data%comm)
       return

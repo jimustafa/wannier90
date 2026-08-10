@@ -712,6 +712,76 @@
     <required>False</required>
   </parameter>
   <parameter tool="w90">
+    <name>opfm</name>
+    <type>L</type>
+    <description>Use the Optimized Projection Functions Method (OPFM) to construct the initial projections, in place of the default projection method. Requires wannier90 to be built and linked against libcodiag</description>
+    <groups>
+      <group>wannierise</group>
+    </groups>
+    <default>False</default>
+    <required>False</required>
+  </parameter>
+  <parameter tool="w90">
+    <name>opfm_lambda</name>
+    <type>R</type>
+    <description>Lagrange multiplier weighting the orthonormality penalty ($S^{(\\mathbf{k})}=A^{(\\mathbf{k})\\dagger}A^{(\\mathbf{k})}-I$) in the OPFM codiagonalization functional</description>
+    <groups>
+      <group>wannierise</group>
+    </groups>
+    <default>1.0</default>
+    <required>False</required>
+  </parameter>
+  <parameter tool="w90">
+    <name>opfm_include_bweights</name>
+    <type>L</type>
+    <description>Weight the OPFM codiagonalization functional by the finite-difference b-weights</description>
+    <groups>
+      <group>wannierise</group>
+    </groups>
+    <default>True</default>
+    <required>False</required>
+  </parameter>
+  <parameter tool="w90">
+    <name>opfm_include_offdiags</name>
+    <type>L</type>
+    <description>Include the off-diagonal blocks of the projection matrices in the OPFM codiagonalization functional</description>
+    <groups>
+      <group>wannierise</group>
+    </groups>
+    <default>True</default>
+    <required>False</required>
+  </parameter>
+  <parameter tool="w90">
+    <name>opfm_num_iter</name>
+    <type>I</type>
+    <description>Number of OPFM codiagonalization iterations</description>
+    <groups>
+      <group>wannierise</group>
+    </groups>
+    <default>100</default>
+    <required>False</required>
+  </parameter>
+  <parameter tool="w90">
+    <name>opfm_random_init</name>
+    <type>L</type>
+    <description>Start the OPFM codiagonalization unitary from a Haar-random matrix instead of the identity</description>
+    <groups>
+      <group>wannierise</group>
+    </groups>
+    <default>False</default>
+    <required>False</required>
+  </parameter>
+  <parameter tool="w90">
+    <name>opfm_write_w_matrix</name>
+    <type>L</type>
+    <description>Write the OPFM codiagonalization matrix W to seedname_opfm_w.mat</description>
+    <groups>
+      <group>wannierise</group>
+    </groups>
+    <default>False</default>
+    <required>False</required>
+  </parameter>
+  <parameter tool="w90">
     <name>slwf_num</name>
     <type>I</type>
     <description>The number of objective WFs for selective localization</description>

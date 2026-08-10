@@ -28,7 +28,12 @@ TEMP1 =
 TEMP2 = $(F90)
 endif
 
+ifdef CODIAG_LIB
+POSTOPTS = $(TEMP1) -DCODIAG -I$(CODIAG_INCLUDE)
+LIBS += -L$(CODIAG_LIB) -lcodiag
+else
 POSTOPTS = $(TEMP1)
+endif
 COMPILER = $(TEMP2)
 
 

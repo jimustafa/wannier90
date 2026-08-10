@@ -35,7 +35,7 @@ module w90_wannierise_mod
 
   use w90_constants, only: dp
   use w90_error, only: w90_error_type, set_error_alloc, set_error_dealloc, set_error_fatal, &
-                       set_error_input, set_error_fatal, set_error_file
+                       set_error_input, set_error_fatal, set_error_file, set_error_unconv
   use w90_comms, only: w90_comm_type
 
   implicit none
@@ -44,6 +44,9 @@ module w90_wannierise_mod
 
   public :: wann_main
   public :: wann_main_gamma
+#ifdef CODIAG
+  public :: wann_main_opfm
+#endif
 
   type localisation_vars_type
     !! Contributions to the spread
@@ -3639,5 +3642,339 @@ contains
     return
 
   end subroutine wann_omega_gamma
+
+  !================================================!
+#ifdef CODIAG
+  subroutine wann_main_opfm(kmesh_info, wann_control, print_output, m_matrix_loc, u_matrix, &
+                            a_matrix, num_kpts, num_wann, dist_k, stdout, seedname, timer, &
+                            error, comm)
+    !================================================!
+    !
+    !! OPFM wannierisation: codiagonalize to find W, then set u_matrix to the
+    !! Lowdin-orthonormalized optimal Amn (A.W); gauge-rotate m_matrix_loc accordingly
+    !
+    !================================================!
+
+    use w90_constants, only: cmplx_1, cmplx_0
+    use w90_io, only: io_date, io_wallclocktime, io_stopwatch_start, io_stopwatch_stop
+    use w90_types, only: kmesh_info_type, print_output_type, timer_list_type
+    use w90_wannier90_types, only: wann_control_type
+    use w90_utility, only: utility_zgemm
+    use w90_opfm, only: opfm_lowdin, opfm_setup, opfm_random_unitary
+    use w90_comms, only: mpirank
+    use codiag_m, only: diag2
+    use codiag_types_m, only: quadform_t, givens_t
+    use codiag_quadform_m, only: quadform_iijj, quadform_ii, quadform_ijji, quadform_ikki, &
+                                 quadform_x2cs
+    use codiag_givens_m, only: conjugate_transform, right_multiply
+    use codiag_qcqp_m, only: solve_qcqp_s2_secular
+
+    implicit none
+
+    type(kmesh_info_type), intent(in) :: kmesh_info
+    type(wann_control_type), intent(inout) :: wann_control
+    type(print_output_type), intent(in) :: print_output
+    type(timer_list_type), intent(inout) :: timer
+    type(w90_comm_type), intent(in) :: comm
+    type(w90_error_type), allocatable, intent(out) :: error
+
+    complex(kind=dp), intent(inout) :: m_matrix_loc(:, :, :, :)
+    complex(kind=dp), intent(inout) :: u_matrix(:, :, :)
+    complex(kind=dp), intent(in)    :: a_matrix(:, :, :)
+
+    integer, intent(in) :: num_kpts
+    integer, intent(in) :: num_wann
+    integer, intent(in) :: dist_k(:)
+    integer, intent(in) :: stdout
+    character(len=50), intent(in) :: seedname
+
+    complex(kind=dp), allocatable :: cvdag(:, :), cz(:, :)
+    complex(kind=dp), allocatable :: aw(:, :, :)
+    complex(kind=dp), allocatable :: mx_matrix(:, :, :), sx_matrix(:, :, :), w_matrix(:, :)
+    complex(kind=dp), allocatable :: tmp(:, :)
+    integer, allocatable :: global_k(:)
+    integer :: my_node_id, nkp, nkp2, nkp_loc, nn, ierr, nkrank, loop_kpt, i, num_proj
+    integer :: ik, idx
+
+    type(quadform_t) :: quadform_m, quadform_s, quadform_offdiag, quadform_L
+    type(givens_t) :: givens
+    real(kind=dp) :: l1, l2, l3, lagrangian_old, lagrangian_new
+    real(kind=dp) :: xvec(3)
+    real(kind=dp) :: cx
+    complex(kind=dp) :: sx
+    integer, allocatable :: kidx(:)
+    integer :: iter, ii, jj, kk, kn
+    logical :: lprint
+    integer :: wmat_unit
+    character(len=33) :: header
+    character(len=9)  :: cdate, ctime
+
+    if (print_output%timing_level > 0 .and. print_output%iprint > 0) then
+      call io_stopwatch_start('wann: opfm', timer)
+    end if
+
+    if (print_output%iprint > 0) then
+      write (stdout, *)
+      write (stdout, '(1x,a)') '*'//repeat('-', 35)//' OPFM '//repeat('-', 35)//'*'
+    end if
+
+    my_node_id = mpirank(comm)
+
+    nkrank = count(dist_k == my_node_id)
+    allocate (global_k(nkrank), stat=ierr)
+    if (ierr /= 0) then
+      call set_error_alloc(error, 'Error allocating global_k in wann_main_opfm', comm)
+      return
+    end if
+    loop_kpt = 1
+    do i = 1, num_kpts
+      if (dist_k(i) == my_node_id) then
+        global_k(loop_kpt) = i
+        loop_kpt = loop_kpt + 1
+      end if
+    end do
+
+    num_proj = size(a_matrix, 2)
+
+    allocate (cvdag(num_wann, num_wann), cz(num_wann, num_wann), &
+              aw(num_wann, num_wann, num_kpts), &
+              mx_matrix(num_proj, num_proj, num_kpts*kmesh_info%nntot), &
+              sx_matrix(num_proj, num_proj, num_kpts), w_matrix(num_proj, num_proj), stat=ierr)
+    if (ierr /= 0) then
+      call set_error_alloc(error, 'Error allocating workspace in wann_main_opfm', comm)
+      return
+    end if
+
+    call opfm_setup(kmesh_info, a_matrix, m_matrix_loc, wann_control%opfm%lambda, &
+                    wann_control%opfm%include_bweights, nkrank, global_k, num_wann, num_proj, &
+                    num_kpts, sx_matrix, mx_matrix, w_matrix, error, comm)
+    if (allocated(error)) return
+
+    if (wann_control%opfm%random_init) then
+      allocate (tmp(num_proj, num_proj), stat=ierr)
+      if (ierr /= 0) then
+        call set_error_alloc(error, 'Error allocating tmp in wann_main_opfm', comm)
+        return
+      end if
+
+      call opfm_random_unitary(num_proj, w_matrix, error, comm)
+      if (allocated(error)) return
+
+      do ik = 1, num_kpts
+        call utility_zgemm(tmp, w_matrix, 'C', sx_matrix(:, :, ik), 'N', num_proj)
+        call utility_zgemm(sx_matrix(:, :, ik), tmp, 'N', w_matrix, 'N', num_proj)
+      end do
+      do idx = 1, num_kpts*kmesh_info%nntot
+        call utility_zgemm(tmp, w_matrix, 'C', mx_matrix(:, :, idx), 'N', num_proj)
+        call utility_zgemm(mx_matrix(:, :, idx), tmp, 'N', w_matrix, 'N', num_proj)
+      end do
+
+      deallocate (tmp, stat=ierr)
+      if (ierr /= 0) then
+        call set_error_dealloc(error, 'Error deallocating tmp in wann_main_opfm', comm)
+        return
+      end if
+    end if
+
+    ! Codiagonalization sweep: maximize diag2(mx_matrix) while minimizing
+    ! diag2(sx_matrix) (and, if include_offdiags, the off-diagonal elements of
+    ! sx_matrix too), accumulating the rotations into w_matrix. Only ii<=num_wann
+    ! are ever rotated against: jj<=num_wann uses the both-kept (quadform_iijj/
+    ! quadform_ijji) branch, jj>num_wann uses the one-discarded (quadform_ii/
+    ! quadform_ikki) branch.
+    if (wann_control%opfm%num_iter > 0) then
+      allocate (kidx(num_wann - 1), stat=ierr)
+      if (ierr /= 0) then
+        call set_error_alloc(error, 'Error allocating kidx in wann_main_opfm', comm)
+        return
+      end if
+
+      l1 = -diag2(mx_matrix(1:num_wann, 1:num_wann, :))
+      l2 = diag2(sx_matrix(1:num_wann, 1:num_wann, :))
+      if (wann_control%opfm%include_offdiags) then
+        l3 = sum(abs(sx_matrix(1:num_wann, 1:num_wann, :))**2) - l2
+      else
+        l3 = 0.0_dp
+      end if
+      lagrangian_old = l1 + l2 + l3
+
+      if (print_output%iprint > 0) then
+        write (stdout, '(1x,a)') '+--------------------------------------------------------------------+<-- OPFM'
+        write (stdout, '(1x,a)') '| Iter    Delta Lagrangian                     Lagrangian      Time  |<-- OPFM'
+        write (stdout, '(1x,a)') '+--------------------------------------------------------------------+<-- OPFM'
+        write (stdout, *)
+        write (stdout, '(1x,a)') 'Initial State'
+        write (stdout, '(1x,i6,7x,E12.3,14x,F18.10,3x,F8.2,2x,a)') 0, 0.0_dp, lagrangian_old, &
+          io_wallclocktime(), '<-- OPFM'
+        write (stdout, *)
+      end if
+
+      do iter = 1, wann_control%opfm%num_iter
+        lprint = .false.
+        if ((mod(iter, wann_control%num_print_cycles) == 0) .or. (iter == 1) .or. &
+            (iter == wann_control%opfm%num_iter)) lprint = .true.
+
+        if (lprint .and. print_output%iprint > 0) write (stdout, '(1x,a,i6)') 'Iter: ', iter
+
+        do ii = 1, num_wann
+          kn = 0
+          do kk = 1, num_wann
+            if (kk /= ii) then
+              kn = kn + 1
+              kidx(kn) = kk
+            end if
+          end do
+
+          do jj = ii + 1, num_proj
+            if (jj <= num_wann) then
+              quadform_m = quadform_iijj(mx_matrix, ii, jj)
+              quadform_s = quadform_iijj(sx_matrix, ii, jj)
+            else
+              quadform_m = quadform_ii(mx_matrix, ii, jj)
+              quadform_s = quadform_ii(sx_matrix, ii, jj)
+            end if
+            quadform_L%A2 = -quadform_m%A2 + quadform_s%A2
+            quadform_L%b1 = -quadform_m%b1 + quadform_s%b1
+            quadform_L%c0 = -quadform_m%c0 + quadform_s%c0
+
+            if (wann_control%opfm%include_offdiags) then
+              if (jj <= num_wann) then
+                quadform_offdiag = quadform_ijji(sx_matrix, ii, jj)
+              else
+                quadform_offdiag = quadform_ikki(sx_matrix, ii, jj, kidx)
+              end if
+              quadform_L%A2 = quadform_L%A2 + quadform_offdiag%A2
+              quadform_L%b1 = quadform_L%b1 + quadform_offdiag%b1
+              quadform_L%c0 = quadform_L%c0 + quadform_offdiag%c0
+            end if
+
+            ! solve_qcqp_s2_secular(A,b) minimizes x^T.A.x - 2.b^T.x; we want
+            ! to minimize quadform_L(x) = x^T.quadform_L%A2.x + quadform_L%b1^T.x,
+            ! so A = quadform_L%A2, b = -quadform_L%b1/2
+            xvec = solve_qcqp_s2_secular(quadform_L%A2, -0.5_dp*quadform_L%b1)
+
+            ! x -> -x is only value-preserving when b1=0 (guaranteed here
+            ! only for jj<=num_wann, via quadform_iijj/quadform_ijji); for
+            ! jj>num_wann, quadform_L%b1 is generically nonzero (quadform_ii,
+            ! plus quadform_ikki when include_offdiags), so x and -x give
+            ! different objective values and must not be swapped.
+            if (jj <= num_wann .and. xvec(1) < 0.0_dp) xvec = -xvec
+
+            call quadform_x2cs(xvec, cx, sx)
+            givens = givens_t(ii, jj, cx, sx)
+
+            call right_multiply(w_matrix, givens)
+            call conjugate_transform(mx_matrix, givens)
+            call conjugate_transform(sx_matrix, givens)
+          end do
+        end do
+
+        l1 = -diag2(mx_matrix(1:num_wann, 1:num_wann, :))
+        l2 = diag2(sx_matrix(1:num_wann, 1:num_wann, :))
+        if (wann_control%opfm%include_offdiags) then
+          l3 = sum(abs(sx_matrix(1:num_wann, 1:num_wann, :))**2) - l2
+        else
+          l3 = 0.0_dp
+        end if
+        lagrangian_new = l1 + l2 + l3
+
+        if (lprint .and. print_output%iprint > 0) then
+          write (stdout, '(1x,i6,7x,E12.3,14x,F18.10,3x,F8.2,2x,a)') iter, &
+            lagrangian_new - lagrangian_old, lagrangian_new, io_wallclocktime(), '<-- OPFM'
+        end if
+
+        if (abs(lagrangian_new - lagrangian_old) < wann_control%conv_tol) exit
+        lagrangian_old = lagrangian_new
+      end do
+
+      if (iter > wann_control%opfm%num_iter) then
+        call set_error_unconv(error, 'OPFM codiagonalization did not converge', comm)
+        return
+      end if
+
+      if (wann_control%opfm%write_w_matrix .and. my_node_id == 0) then
+        call io_date(cdate, ctime)
+        header = 'written on '//cdate//' at '//ctime
+        open (newunit=wmat_unit, file=trim(seedname)//'_opfm_w.mat', form='formatted')
+        write (wmat_unit, *) header
+        write (wmat_unit, *) num_proj, num_wann
+        write (wmat_unit, '(f15.10,sp,f15.10)') &
+          ((w_matrix(ii, jj), ii=1, num_proj), jj=1, num_wann)
+        close (wmat_unit)
+      end if
+    end if
+
+    ! u_AW = Lowdin(A.W): the true (non-linearized) optimal gauge
+    do nkp = 1, num_kpts
+      call zgemm('N', 'N', num_wann, num_wann, num_proj, cmplx_1, a_matrix(:, :, nkp), num_wann, &
+                 w_matrix(:, 1:num_wann), num_proj, cmplx_0, aw(:, :, nkp), num_wann)
+    end do
+    call opfm_lowdin(aw, u_matrix, error, comm)
+    if (allocated(error)) return
+
+    ! rotate the original (Bloch-gauge) m_matrix_loc into the final u_AW gauge
+    nkp_loc = 1
+    do nkp = 1, num_kpts
+      if (dist_k(nkp) == my_node_id) then
+        do nn = 1, kmesh_info%nntot
+          nkp2 = kmesh_info%nnlist(nkp, nn)
+          call utility_zgemm(cvdag, u_matrix(:, :, nkp), 'C', &
+                             m_matrix_loc(:, :, nn, nkp_loc), 'N', num_wann)
+          call utility_zgemm(cz, cvdag, 'N', u_matrix(:, :, nkp2), 'N', num_wann)
+          m_matrix_loc(:, :, nn, nkp_loc) = cz(:, :)
+        end do
+        nkp_loc = nkp_loc + 1
+      end if
+    end do
+
+    ! deallocate sub vars not passed into other subs
+    deallocate (cvdag, stat=ierr)
+    if (ierr /= 0) then
+      call set_error_dealloc(error, 'Error in deallocating cvdag in wann_main_opfm', comm)
+      return
+    end if
+    deallocate (cz, stat=ierr)
+    if (ierr /= 0) then
+      call set_error_dealloc(error, 'Error in deallocating cz in wann_main_opfm', comm)
+      return
+    end if
+    deallocate (aw, stat=ierr)
+    if (ierr /= 0) then
+      call set_error_dealloc(error, 'Error in deallocating aw in wann_main_opfm', comm)
+      return
+    end if
+    deallocate (mx_matrix, stat=ierr)
+    if (ierr /= 0) then
+      call set_error_dealloc(error, 'Error in deallocating mx_matrix in wann_main_opfm', comm)
+      return
+    end if
+    deallocate (sx_matrix, stat=ierr)
+    if (ierr /= 0) then
+      call set_error_dealloc(error, 'Error in deallocating sx_matrix in wann_main_opfm', comm)
+      return
+    end if
+    deallocate (w_matrix, stat=ierr)
+    if (ierr /= 0) then
+      call set_error_dealloc(error, 'Error in deallocating w_matrix in wann_main_opfm', comm)
+      return
+    end if
+    deallocate (global_k, stat=ierr)
+    if (ierr /= 0) then
+      call set_error_dealloc(error, 'Error in deallocating global_k in wann_main_opfm', comm)
+      return
+    end if
+    if (allocated(kidx)) then
+      deallocate (kidx, stat=ierr)
+      if (ierr /= 0) then
+        call set_error_dealloc(error, 'Error in deallocating kidx in wann_main_opfm', comm)
+        return
+      end if
+    end if
+
+    if (print_output%timing_level > 0 .and. print_output%iprint > 0) then
+      call io_stopwatch_stop('wann: opfm', timer)
+    end if
+  end subroutine wann_main_opfm
+#endif
 
 end module w90_wannierise_mod

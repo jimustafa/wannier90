@@ -84,3 +84,5 @@ tutorial35: Silicon - Projectability-disentangled Wannier functions with custom 
 tutorial36: Silicon - Comparison of Marzari-Vanderbilt and Stengel-Spaldin functionals
 
 tutorial37: Iron - Bcc Iron — Translationally-invariant Wannier Interpolation
+
+tutorial38: Silicon - Optimized projection functions method (OPFM) via codiagonalization

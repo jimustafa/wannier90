@@ -133,6 +133,8 @@ module w90_library
     logical :: calc_only_A = .false.
     logical :: gamma_only = .false.
     !! Select gamma_only branch of some algorithms
+    logical :: opfm = .false.
+    !! Select optimized projection functions methdod (OPFM)
     logical :: have_disentangled = .false.
     !! Flag that disentanglment has been performed
     logical :: lhasproj = .false.
@@ -363,7 +365,7 @@ contains
                                               common_data%num_kpts, common_data%num_proj, &
                                               common_data%num_wann, common_data%gamma_only, &
                                               common_data%lhasproj, &
-                                              common_data%use_bloch_phases, &
+                                              common_data%use_bloch_phases, common_data%opfm, &
                                               common_data%dist_kpoints, istdout, error, &
                                               common_data%comm)
     if (allocated(error)) then
@@ -423,7 +425,8 @@ contains
                                       common_data%sitesym%symmetrize_eps, common_data%num_bands, &
                                       common_data%num_kpts, common_data%num_wann, &
                                       common_data%optimisation, common_data%calc_only_A, cp_pp, &
-                                      common_data%gamma_only, common_data%lsitesymmetry, &
+                                      common_data%gamma_only, common_data%opfm, &
+                                      common_data%lsitesymmetry, &
                                       common_data%use_bloch_phases, common_data%seedname, istdout, &
                                       error, common_data%comm)
     if (allocated(error)) then
@@ -513,7 +516,8 @@ contains
                                       common_data%sitesym%symmetrize_eps, common_data%num_bands, &
                                       common_data%num_kpts, common_data%num_wann, &
                                       common_data%optimisation, common_data%calc_only_A, cp_pp, &
-                                      common_data%gamma_only, common_data%lsitesymmetry, &
+                                      common_data%gamma_only, common_data%opfm, &
+                                      common_data%lsitesymmetry, &
                                       common_data%use_bloch_phases, common_data%seedname, &
                                       istdout, error, common_data%comm)
     if (allocated(error)) then
@@ -669,31 +673,33 @@ contains
         return
       end if
 
-      ! fixme, document!
-      common_data%u_matrix(:, :, :) = common_data%u_matrix_opt(:, :, :) ! u_matrix_opt contains initial projections
-      common_data%u_matrix_opt(:, :, :) = 0.d0
-      do ik = 1, common_data%num_kpts
-        do iw = 1, common_data%num_wann
-          common_data%u_matrix_opt(iw, iw, ik) = 1.d0
+      if (.not. common_data%opfm) then
+        ! fixme, document!
+        common_data%u_matrix(:, :, :) = common_data%u_matrix_opt(:, 1:common_data%num_wann, :) ! u_matrix_opt contains initial projections
+        common_data%u_matrix_opt(:, :, :) = 0.d0
+        do ik = 1, common_data%num_kpts
+          do iw = 1, common_data%num_wann
+            common_data%u_matrix_opt(iw, iw, ik) = 1.d0
+          end do
         end do
-      end do
 
-      if (common_data%gamma_only) then
-        call overlap_project_gamma(common_data%m_matrix_local, common_data%u_matrix, &
-                                   common_data%kmesh_info%nntot, common_data%num_wann, &
-                                   common_data%print_output%timing_level, istdout, &
-                                   common_data%timer, error, common_data%comm)
-      else
-        call overlap_project(common_data%sitesym, common_data%m_matrix_local, common_data%u_matrix, &
-                             common_data%kmesh_info%nnlist, common_data%kmesh_info%nntot, &
-                             common_data%num_wann, common_data%num_kpts, common_data%num_wann, &
-                             common_data%print_output%timing_level, common_data%lsitesymmetry, &
-                             istdout, common_data%timer, common_data%dist_kpoints, error, &
-                             common_data%comm)
-      end if
-      if (allocated(error)) then
-        call prterr(error, ierr, istdout, istderr, common_data%comm)
-        return
+        if (common_data%gamma_only) then
+          call overlap_project_gamma(common_data%m_matrix_local, common_data%u_matrix, &
+                                     common_data%kmesh_info%nntot, common_data%num_wann, &
+                                     common_data%print_output%timing_level, istdout, &
+                                     common_data%timer, error, common_data%comm)
+        else
+          call overlap_project(common_data%sitesym, common_data%m_matrix_local, common_data%u_matrix, &
+                               common_data%kmesh_info%nnlist, common_data%kmesh_info%nntot, &
+                               common_data%num_wann, common_data%num_kpts, common_data%num_wann, &
+                               common_data%print_output%timing_level, common_data%lsitesymmetry, &
+                               istdout, common_data%timer, common_data%dist_kpoints, error, &
+                               common_data%comm)
+        end if
+        if (allocated(error)) then
+          call prterr(error, ierr, istdout, istderr, common_data%comm)
+          return
+        end if
       end if
     end if
   end subroutine w90_project_overlap
@@ -705,6 +711,9 @@ contains
     use w90_error_base, only: w90_error_type
     use w90_error, only: set_error_fatal
     use w90_wannierise_mod, only: wann_main, wann_main_gamma
+#ifdef CODIAG
+    use w90_wannierise_mod, only: wann_main_opfm
+#endif
 
     implicit none
 
@@ -727,6 +736,20 @@ contains
       call prterr(error, ierr, istdout, istderr, common_data%comm)
       return
     end if
+
+#ifdef CODIAG
+    if (common_data%opfm) then
+      call wann_main_opfm(common_data%kmesh_info, common_data%wann_control, &
+                          common_data%print_output, common_data%m_matrix_local, &
+                          common_data%u_matrix, common_data%u_matrix_opt, common_data%num_kpts, &
+                          common_data%num_wann, common_data%dist_kpoints, istdout, &
+                          common_data%seedname, common_data%timer, error, common_data%comm)
+      if (allocated(error)) then
+        call prterr(error, ierr, istdout, istderr, common_data%comm)
+        return
+      end if
+    end if
+#endif
 
     if (common_data%gamma_only) then
       if (mpirank(common_data%comm) == 0) then

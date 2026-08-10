@@ -106,6 +106,9 @@ file.
 - `use_bloch_phases` cannot be used in conjunction with disentanglement.
 - `site_symmetry` and `symmetrize_eps` cannot be used in conjunction with the
     inner (frozen) energy window.
+- `opfm` requires `wannier90` to be built and linked against `libcodiag`, and
+    cannot be used in conjunction with disentanglement (`num_bands` must
+    equal `num_wann`).
 
 ### Plot Parameters
 
@@ -941,6 +944,64 @@ $\mathbf{U}^{(\mathbf{k})}$ is satisfied or not. See also Eq. (29) in
 Ref. [@sakuma-prb13]. Used when `site_symmetry = .true`.
 
 The default value is 1.0E-3.
+
+### `logical :: opfm`
+
+Use the Optimized Projection Functions Method (OPFM)
+[@mustafa-prb15; @mustafa-prb16] to construct the initial guess
+$A_{mn}^{(\mathbf{k})}$, in place of the trial projections given in the
+`projections` block (see [Projections via the OPFM
+method](projections.md#projections-via-the-opfm-method)). Requires
+`wannier90` to be built and linked against
+[`libcodiag`](https://github.com/wannier-developers/libcodiag); see
+`README.install`. Without it, setting `opfm = .true.` fails with an
+input error at run time. The `opfm_*` keywords below only take effect
+when `opfm = .true.`.
+
+The default value is `false`.
+
+### `real(kind=dp) :: opfm_lambda`
+
+Lagrange multiplier weighting the orthonormality penalty
+$S^{(\mathbf{k})} = A^{(\mathbf{k})\dagger}A^{(\mathbf{k})} - I$ in the
+OPFM codiagonalization functional.
+
+The default value is 1.0.
+
+### `logical :: opfm_include_bweights`
+
+Weight the OPFM codiagonalization functional by the finite-difference
+$b$-weights.
+
+The default value is `true`.
+
+### `logical :: opfm_include_offdiags`
+
+Also penalize the off-diagonal elements of $S^{(\mathbf{k})} =
+A^{(\mathbf{k})\dagger}A^{(\mathbf{k})} - I$ (not just its diagonal) in
+the OPFM codiagonalization functional, as required for bands with
+nontrivial topology [@mustafa-prb16].
+
+The default value is `true`.
+
+### `integer :: opfm_num_iter`
+
+Number of OPFM codiagonalization sweeps.
+
+The default value is 100.
+
+### `logical :: opfm_random_init`
+
+Start the OPFM codiagonalization unitary $W$ from a Haar-random matrix
+instead of the identity.
+
+The default value is `false`.
+
+### `logical :: opfm_write_w_matrix`
+
+Write the OPFM codiagonalization matrix $W$ to `seedname_opfm_w.mat`.
+
+The default value is `false`.
 
 ### `integer :: slwf_num`
 

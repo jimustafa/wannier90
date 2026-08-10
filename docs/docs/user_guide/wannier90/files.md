@@ -604,6 +604,18 @@ contains the rectangular matrices $\bf{U}^{{\rm dis}({\bf k})}$.
 OUTPUT. Written if `write_r2mn = true`. The matrix elements
 $\langle m|r^2|n\rangle$ (where $m$ and $n$ refer to MLWF)
 
+## `seedname_opfm_w.mat`
+
+OUTPUT. Written if `opfm=.TRUE.` and `opfm_write_w_matrix=.TRUE.`. The
+$M \times N$ OPFM codiagonalization matrix $W$ (see [Projections via
+the OPFM method](projections.md#projections-via-the-opfm-method)),
+mapping the $M$=`num_proj` raw trial projections onto the $N$=`num_wann`
+optimized projection functions. A header line, followed by a line with
+the two integers $M$ and $N$, followed by the complex entries
+$W_{ij}$ ($i=1,\ldots,M$; real and imaginary parts, one entry per line),
+in column-major order (all $M$ rows of column $j=1$, then all $M$ rows
+of column $j=2$, etc.).
+
 ## `seedname_band.dat`
 
 OUTPUT. Written if `bands_plot=.TRUE.`; The raw data for the

@@ -59,8 +59,8 @@ contains
                                                   select_proj, w90_system, w90_calculation, &
                                                   real_lattice, bohr, mp_grid, num_bands, &
                                                   exclude_bands, num_kpts, num_proj, num_wann, &
-                                                  gamma_only, lhasproj, use_bloch_phases, distk, &
-                                                  stdout, error, comm)
+                                                  gamma_only, lhasproj, use_bloch_phases, opfm, &
+                                                  distk, stdout, error, comm)
     !================================================!
     !
     !! Read parameters and calculate derived values
@@ -105,6 +105,7 @@ contains
     logical, intent(inout) :: lhasproj
     logical, intent(inout) :: use_bloch_phases
     logical, intent(inout) :: gamma_only
+    logical, intent(inout) :: opfm
 
     ! local variables
     logical :: disentanglement
@@ -136,6 +137,9 @@ contains
 
     disentanglement = (num_bands > num_wann)
 
+    call w90_wannier90_readwrite_read_opfm(settings, opfm, num_bands, num_wann, error, comm)
+    if (allocated(error)) return
+
     call w90_readwrite_read_mp_grid(settings, .false., mp_grid, num_kpts, error, comm)
     if (allocated(error)) return
 
@@ -162,8 +166,8 @@ contains
     call w90_wannier90_readwrite_read_projections(settings, proj, proj_input, use_bloch_phases, &
                                                   lhasproj, wann_control%guiding_centres%enable, &
                                                   select_proj, num_proj, atom_data, inv_lattice, &
-                                                  num_wann, gamma_only, w90_system%spinors, bohr, &
-                                                  stdout, error, comm)
+                                                  num_wann, gamma_only, opfm, w90_system%spinors, &
+                                                  bohr, stdout, error, comm)
     if (allocated(error)) return
 
     if (allocated(proj)) then
@@ -187,7 +191,7 @@ contains
                                           kpoint_path, w90_system, tran, print_output, wann_plot, &
                                           ws_region, real_lattice, w90_calculation, bohr, &
                                           symmetrize_eps, num_bands, num_kpts, num_wann, &
-                                          optimisation, calc_only_A, cp_pp, gamma_only, &
+                                          optimisation, calc_only_A, cp_pp, gamma_only, opfm, &
                                           lsitesymmetry, use_bloch_phases, seedname, stdout, &
                                           error, comm)
     !================================================!
@@ -244,6 +248,7 @@ contains
     logical, intent(inout) :: lsitesymmetry
     logical, intent(out) :: use_bloch_phases, cp_pp, calc_only_A
     logical, intent(inout) :: gamma_only
+    logical, intent(inout) :: opfm
 
     ! local variables
     logical :: has_kpath
@@ -785,7 +790,83 @@ contains
         return
       end if
     end if
+
+    call w90_readwrite_get_keyword(settings, 'opfm_lambda', found, error, comm, &
+                                   r_value=wann_control%opfm%lambda)
+    if (allocated(error)) return
+
+    if (found) then
+      if (wann_control%opfm%lambda < 0.0_dp) then
+        call set_error_input(error, 'Error: opfm_lambda must be positive.', comm)
+        return
+      end if
+    end if
+
+    call w90_readwrite_get_keyword(settings, 'opfm_include_bweights', found, error, comm, &
+                                   l_value=wann_control%opfm%include_bweights)
+    if (allocated(error)) return
+
+    call w90_readwrite_get_keyword(settings, 'opfm_include_offdiags', found, error, comm, &
+                                   l_value=wann_control%opfm%include_offdiags)
+    if (allocated(error)) return
+
+    call w90_readwrite_get_keyword(settings, 'opfm_num_iter', found, error, comm, &
+                                   i_value=wann_control%opfm%num_iter)
+    if (allocated(error)) return
+
+    if (wann_control%opfm%num_iter < 0) then
+      call set_error_input(error, 'Error: opfm_num_iter must be positive', comm)
+      return
+    end if
+
+    call w90_readwrite_get_keyword(settings, 'opfm_random_init', found, error, comm, &
+                                   l_value=wann_control%opfm%random_init)
+    if (allocated(error)) return
+
+    call w90_readwrite_get_keyword(settings, 'opfm_write_w_matrix', found, error, comm, &
+                                   l_value=wann_control%opfm%write_w_matrix)
+    if (allocated(error)) return
   end subroutine w90_wannier90_readwrite_read_wannierise
+
+  !================================================!
+  subroutine w90_wannier90_readwrite_read_opfm(settings, opfm, num_bands, num_wann, error, comm)
+    !================================================!
+    !! Reads the flag to select the OPFM wannierisation method ("opfm")
+    !================================================!
+    use w90_error, only: w90_error_type
+    implicit none
+
+    logical, intent(inout) :: opfm
+    integer, intent(in) :: num_bands
+    integer, intent(in) :: num_wann
+    type(settings_type), intent(inout) :: settings
+    type(w90_comm_type), intent(in) :: comm
+    type(w90_error_type), allocatable, intent(out) :: error
+
+    logical :: found, ltmp
+
+    ltmp = .false.
+    opfm = .false.
+
+    call w90_readwrite_get_keyword(settings, 'opfm', found, error, comm, l_value=ltmp)
+    if (allocated(error)) return
+
+    if (found) opfm = ltmp
+
+#ifndef CODIAG
+    if (opfm) then
+      call set_error_input(error, 'Error: opfm is true, but wannier90 was built without &
+      &libcodiag support (configure libcodiag and rebuild; see README.install)', comm)
+      return
+    end if
+#endif
+
+    if (opfm .and. (num_bands /= num_wann)) then
+      call set_error_input(error, 'Error: opfm is true, but num_bands /= num_wann &
+      &(OPFM does not yet support disentanglement)', comm)
+      return
+    end if
+  end subroutine w90_wannier90_readwrite_read_opfm
 
   !================================================!
   subroutine w90_wannier90_readwrite_read_disentangle(settings, dis_control, dis_spheres, &
@@ -1535,8 +1616,8 @@ contains
                                                       use_bloch_phases, lhasproj, &
                                                       guiding_centres, select_proj, num_proj, &
                                                       atom_data, recip_lattice, num_wann, &
-                                                      gamma_only, spinors, bohr, stdout, error, &
-                                                      comm)
+                                                      gamma_only, opfm, spinors, bohr, stdout, &
+                                                      error, comm)
     !================================================!
     ! Obtain projector definitions
     use w90_error, only: w90_error_type
@@ -1548,6 +1629,7 @@ contains
     integer, intent(inout) :: num_proj
     integer, intent(in) :: stdout
     logical, intent(in) :: gamma_only
+    logical, intent(in) :: opfm
     logical, intent(in) :: spinors
     logical, intent(in) :: use_bloch_phases, guiding_centres
     logical, intent(out) :: lhasproj
@@ -1654,7 +1736,7 @@ contains
         call set_error_input(error, 'Error: too few projections selected', comm)
         return
       end if
-      if (num_select_projections > num_wann) then
+      if (num_select_projections > num_wann .and. .not. opfm) then
         call set_error_input(error, 'Error: too many projections selected', comm)
         return
       end if
@@ -1689,11 +1771,17 @@ contains
           if (select_projections(j) == i) select_proj%proj2wann_map(i) = j
         end do
       end do
+    else if (opfm) then
+      do i = 1, num_proj
+        select_proj%proj2wann_map(i) = i
+      end do
     else
       do i = 1, num_wann
         select_proj%proj2wann_map(i) = i
       end do
     end if
+
+    select_proj%num_select_projections = maxval(select_proj%proj2wann_map)
 
     if (lhasproj) then
       call w90_readwrite_get_projections(settings, num_proj, atom_data, num_wann, proj_input, &

@@ -236,7 +236,7 @@ program wannier
   end if
   call w90_set_u_matrix(common_data, u_matrix)
 
-  allocate (u_matrix_opt(nb, nw, nk), stat=ierr)
+  allocate (u_matrix_opt(nb, common_data%select_proj%num_select_projections, nk), stat=ierr)
   if (ierr /= 0) then
     write (stderr, *) 'Wannier90: failed to allocate u_matrix_opt!'
     stop 1

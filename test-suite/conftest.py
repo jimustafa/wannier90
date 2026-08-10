@@ -30,6 +30,7 @@ MARKERS = (
     "checkpoint: checkpoint write/read round-trip tests",
     "parallel: tests that only make sense under MPI (directories partest*)",
     "serial: tests that always run serially, even with --nprocs",
+    "opfm: tests that require wannier90 built with libcodiag support (run with `pytest -m opfm`)",
 )
 
 #: Per-test outcome of --update-benchmarks: name -> whether the reference changed.

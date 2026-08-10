@@ -174,6 +174,15 @@ module w90_wannier90_types
     !! to centre of trial orbital. Individual Lagrange multipliers, lambdas, default to global Lagrange multiplier.
   end type wann_slwf_type
 
+  type wann_opfm_type
+    real(kind=dp) :: lambda = 1.0_dp
+    logical :: include_bweights = .true.
+    logical :: include_offdiags = .true.
+    integer :: num_iter = 100
+    logical :: random_init = .false.
+    logical :: write_w_matrix = .false.
+  end type wann_opfm_type
+
   type guiding_centres_type
     logical :: enable = .false.
     integer :: num_guide_cycles = 1
@@ -204,6 +213,7 @@ module w90_wannier90_types
     real(kind=dp) :: conv_noise_amp = -1.0_dp
     integer :: conv_noise_num = 3
     type(wann_slwf_type) :: constrain
+    type(wann_opfm_type) :: opfm
   end type wann_control_type
 
   type wann_omega_type
@@ -264,7 +274,7 @@ module w90_wannier90_types
     !! Contains variables relevant to selecting a subset of the projections for the calculation.
     !!==================================================
     logical :: lselproj = .false.
-    !integer, save :: num_select_projections
+    integer :: num_select_projections = 0
     !integer, allocatable, save :: select_projections(:)
     integer, allocatable :: proj2wann_map(:)
     logical :: auto_projections = .false.

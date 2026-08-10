@@ -1,0 +1,8 @@
+# testw90_opfm_no_codiag
+
+description: Test that opfm = true fails gracefully when built without libcodiag support
+profile: wannier90_werr
+runs:
+  - input: wannier.win
+    output: wannier.werr
+expect_failure: true

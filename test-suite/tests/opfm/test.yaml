@@ -1,0 +1,13 @@
+# opfm
+
+description: >
+  OPFM regression test (requires wannier90 built with libcodiag support; not
+  part of the default/wannier_only category since most builds lack it)
+profile: wannier90_wout
+runs:
+  - input: silicon.win
+    output: silicon.wout
+tags: [opfm]
+prepare:
+  - bunzip2: "*.amn.bz2"
+  - bunzip2: "*.mmn.bz2"

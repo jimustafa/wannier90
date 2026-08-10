@@ -100,6 +100,14 @@ if (WANNIER90_MPI)
 		target_compile_options(Wannier90_exe PRIVATE -fallow-argument-mismatch)
 	endif ()
 endif ()
+if (WANNIER90_CODIAG)
+	target_sources(Wannier90_lib PRIVATE
+			opfm.F90
+			)
+	target_include_directories(Wannier90_lib PRIVATE ${CODIAG_MODULE_DIR})
+	target_link_libraries(Wannier90_lib PRIVATE ${CODIAG_LIBRARY})
+	target_compile_definitions(Wannier90_lib PRIVATE CODIAG)
+endif ()
 
 add_subdirectory(postw90)
 

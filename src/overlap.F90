@@ -160,7 +160,7 @@ contains
   !================================================!
   subroutine overlap_read(kmesh_info, select_projection, au_matrix, m_matrix_local, num_bands, &
                           num_kpts, num_proj, num_wann, print_output, timing_level, cp_pp, &
-                          use_bloch_phases, seedname, stdout, timer, dist_k, error, comm)
+                          use_bloch_phases, opfm, seedname, stdout, timer, dist_k, error, comm)
     !================================================!
     !! Read the Mmn and Amn from files
     !! Note: one needs to call overlap_allocate first!
@@ -193,7 +193,7 @@ contains
     complex(kind=dp), intent(inout) :: au_matrix(:, :, :)
     complex(kind=dp), intent(inout) :: m_matrix_local(:, :, :, :)
 
-    logical, intent(in) :: cp_pp, use_bloch_phases
+    logical, intent(in) :: cp_pp, use_bloch_phases, opfm
 
     character(len=50), intent(in) :: seedname
 
@@ -353,7 +353,7 @@ contains
         return
       end if
 
-      if (num_proj > num_wann .and. .not. select_projection%lselproj) then
+      if (num_proj > num_wann .and. .not. select_projection%lselproj .and. .not. opfm) then
         call set_error_file(error, trim(seedname)//'.amn has too many projections to be used without selecting a subset', comm)
         return
       end if

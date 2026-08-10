@@ -296,6 +296,56 @@ associated with different values of $r$: the set of solutions to the
 radial part of the hydrogenic Schrödinger equation for $l=0$, i.e., the
 radial parts of the 1s, 2s, 3s… orbitals, where $\alpha=Z/a=$`zona`.
 
+## Projections via the OPFM method
+
+Plain projection onto the `projections` block requires the user to guess
+$N$ trial orbitals that already resemble the target MLWFs; a poor guess
+(wrong orbital character, or the right character with the wrong spatial
+orientation) can trap the subsequent Marzari-Vanderbilt minimisation in
+a local minimum of $\Omega$ far from the global one. The Optimized
+Projection Functions Method (OPFM)
+[@mustafa-prb15; @mustafa-prb16] removes this guesswork: instead of $N$
+orbitals believed to already be close to the target Wannier functions,
+one supplies $M \geq N$ orbitals $\{h_i\}$ that merely *overspan* the
+target Wannier subspace (e.g. all s and p orbitals on a set of atomic
+sites, more than are needed for the final $N$ Wannier functions), and
+OPFM finds a single $\mathbf{k}$-independent semi-unitary $M \times N$
+matrix $W$ combining them into optimized projection functions
+$\bar{g}_j = \sum_i W_{ij} h_i$ that are already close to the true
+MLWFs. $W$ is found by a Jacobi-like joint-codiagonalization procedure
+applied to the nearest-neighbour overlap matrices $M^{(\mathbf{k},\mathbf{b})}$
+built from the $\{h_i\}$, minimizing the same $\Omega_{I}+\Omega_{OD}$
+spread functional used in the standard minimisation, subject to a
+Lagrange penalty (weighted by `opfm_lambda`) built from the
+projection-derived matrices $S^{(\mathbf{k})}$ that enforces
+orthonormality of the resulting Wannier functions. See tutorial [38](../../tutorials/tutorial_38.md)
+for a worked example, including a case where OPFM recovers from a
+misoriented trial orbital that traps plain MV minimisation.
+
+To use OPFM:
+
+1. Build `wannier90` linked against
+    [`libcodiag`](https://github.com/wannier-developers/libcodiag); see
+    `README.install`. Without it, setting `opfm = .true.` fails with an
+    input error at run time.
+
+2. Specify the $M$ overspanning trial orbitals $\{h_i\}$ in the
+    `projections` block as usual (Section [Specification of projections
+    in `seedname.win`](projections.md#sec:proj)), with $M \geq$
+    `num_wann` (unlike plain projection, `select_projections` may
+    select more entries than `num_wann`).
+
+3. Set `opfm = .true.` in `<seedname>.win`.
+
+OPFM cannot currently be used in conjunction with disentanglement
+(`num_bands` must equal `num_wann`). The codiagonalization procedure is
+controlled by `opfm_lambda`, `opfm_include_bweights`,
+`opfm_include_offdiags`, `opfm_num_iter` and `opfm_random_init`; setting
+`opfm_write_w_matrix = .true.` writes the codiagonalization matrix $W$
+to `seedname_opfm_w.mat` for inspection. See the [Wannierise
+Parameters](parameters.md#wannierise-parameters) table for full
+descriptions and defaults.
+
 ## Projections via the SCDM-**k** method in pw2wannier90
 
 For many systems, such as aperiodic systems, crystals with defects, or

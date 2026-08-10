@@ -78,6 +78,14 @@
 
         cmake ../ -DWANNIER90_WITH_C=ON
 
+ To enable OPFM, wannier90 must be linked against libcodiag.
+ Point CODIAG_ROOT at its install prefix and set WANNIER90_CODIAG=ON:
+
+        cmake ../ -DWANNIER90_CODIAG=ON -DCODIAG_ROOT=/path/to/codiag/install
+
+ Without WANNIER90_CODIAG, wannier90 still builds and runs normally;
+ setting opfm=true in the input file will fail with an input error at run time.
+
 
  INSTALLATION USING GNUMAKE
  --------------------------
@@ -98,6 +106,17 @@
 
          cp ./config/make.inc.ifort ./make.inc
          make
+
+   To enable the OPFM wannierisation method, wannier90 must be linked against libcodiag.
+   Add the following to make.inc, pointing at its install prefix's include/ and lib/ subdirectories:
+
+        CODIAG_INCLUDE = /path/to/codiag/install/include
+        CODIAG_LIB = /path/to/codiag/install/lib
+        FCOPTS += -I$(CODIAG_INCLUDE)
+        LIBS += -L$(CODIAG_LIB) -lcodiag
+
+   Without this, wannier90 still builds and runs normally; setting opfm=true
+   in the input file will fail with an input error at run time.
 
    IMPORTANT NOTE: a GNU version of the make utility is needed to compile
      Wannier90.

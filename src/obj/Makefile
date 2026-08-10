@@ -17,6 +17,9 @@ OBJS  = constants.o io.o utility.o types.o hamiltonian.o overlap.o kmesh.o disen
 ifdef WANNIER90_WITH_C
 OBJS  += c_interface.o wannier90.o
 endif
+ifdef CODIAG_LIB
+OBJS  += opfm.o
+endif
 
 OBJS_POST  = ws_distance.o types.o kmesh.o io.o comms.o utility.o get_oper.o constants.o \
  		postw90_common.o wan_ham.o spin.o dos.o berry.o gyrotropic.o kpath.o kslice.o \
@@ -132,7 +135,12 @@ error.o: error.F90 error_base.o comms.o
 disentangle.o: disentangle.F90 constants.o io.o types.o sitesym.o comms.o wannier90_types.o
 	 $(COMPILER) $(POSTOPTS) $(FCOPTS) -c $<
 
-wannierise.o: wannierise.F90 hamiltonian.o constants.o io.o utility.o types.o sitesym.o comms.o wannier90_types.o wannier90_readwrite.o error.o
+ifdef CODIAG_LIB
+opfm.o: opfm.F90 constants.o comms.o error.o utility.o wannier90_types.o
+	 $(COMPILER) $(POSTOPTS) $(FCOPTS) -c $<
+endif
+
+wannierise.o: wannierise.F90 hamiltonian.o constants.o io.o utility.o types.o sitesym.o comms.o wannier90_types.o wannier90_readwrite.o error.o $(if $(CODIAG_LIB),opfm.o)
 	 $(COMPILER) $(POSTOPTS) $(FCOPTS) -c $<
 
 plot.o: plot.F90 constants.o io.o utility.o types.o hamiltonian.o ws_distance.o wannier90_types.o comms.o

@@ -27,6 +27,7 @@ endif ()
 option(WANNIER90_MPI "Wannier90: Build with MPI support" OFF)
 option(WANNIER90_MPIH "Wannier90: Build MPI support using the mpi.h header" OFF)
 option(WANNIER90_WITH_C "Wannier90: Build the C interface" OFF)
+option(WANNIER90_CODIAG "Wannier90: Build with libcodiag support (enables OPFM)" OFF)
 option(WANNIER90_SHARED_LIBS "Wannier90: Build library as a shared library" ${PROJECT_IS_TOP_LEVEL})
 option(WANNIER90_INSTALL "Wannier90: Install files" ${PROJECT_IS_TOP_LEVEL})
 option(WANNIER90_TEST "Wannier90: Build test-suite" ${PROJECT_IS_TOP_LEVEL})
@@ -91,6 +92,22 @@ if (WANNIER90_MPI)
 #	if (NOT MPI_Fortran_HAVE_F08_MODULE)
 #		message(SEND_ERROR "mpi_f08 module is required for building Wannier90 with MPI")
 #	endif ()
+endif ()
+if (WANNIER90_CODIAG)
+	# libcodiag has no CMake package config; locate it via CODIAG_ROOT hint
+	# (or CMAKE_PREFIX_PATH), e.g. -DCODIAG_ROOT=$HOME/projects/libcodiag/build
+	find_path(CODIAG_MODULE_DIR NAMES codiag_m.mod
+			HINTS ${CODIAG_ROOT} ENV CODIAG_ROOT
+			PATH_SUFFIXES include
+	)
+	find_library(CODIAG_LIBRARY NAMES codiag
+			HINTS ${CODIAG_ROOT} ENV CODIAG_ROOT
+			PATH_SUFFIXES lib
+	)
+	if (NOT CODIAG_MODULE_DIR OR NOT CODIAG_LIBRARY)
+		message(FATAL_ERROR "WANNIER90_CODIAG requested but libcodiag was not found; "
+				"set -DCODIAG_ROOT=<path to libcodiag build dir>")
+	endif ()
 endif ()
 
 #[=============================================================================[
